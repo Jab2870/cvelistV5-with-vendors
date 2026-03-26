@@ -1,0 +1,36 @@
+#!/bin/bash
+
+CVELIST_DIR="../cves/"
+VENDORS_DIR="../vendors"
+
+MAX_NAME_LEN=200
+
+process_cve_file() {
+    local cve_file="$1"
+    local vendors_dir="$2"
+    local max_len="$3"
+    
+    jq -r '.containers.cna.affected[]? | select(.vendor != "n/a" and .vendor != "") | "\(.vendor)|\(.product)"' "$cve_file" 2>/dev/null | while IFS='|' read -r vendor product; do
+        if [ -n "$vendor" ] && [ -n "$product" ] && [ "$product" != "n/a" ]; then
+            vendor="${vendor:0:$max_len}"
+            product="${product:0:$max_len}"
+            dir="$vendors_dir/$vendor/$product"
+            mkdir -p "$dir"
+            ln -sf "$(realpath "$cve_file")" "$dir/"
+        fi
+    done
+}
+export -f process_cve_file
+
+rm -rf "$VENDORS_DIR"
+mkdir -p "$VENDORS_DIR"
+
+total=$(find "$CVELIST_DIR" -name "CVE-*.json" -type f 2>/dev/null | wc -l)
+echo "Processing $total CVE files..."
+
+find "$CVELIST_DIR" -name "CVE-*.json" -type f 2>/dev/null | \
+    parallel -j 32 process_cve_file {} "$VENDORS_DIR" "$MAX_NAME_LEN"
+
+echo "Done. Vendor directories created in $VENDORS_DIR"
+echo "Total vendor/product directories: $(find "$VENDORS_DIR" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)"
+echo "Total symlinks: $(find "$VENDORS_DIR" -type l 2>/dev/null | wc -l)"
